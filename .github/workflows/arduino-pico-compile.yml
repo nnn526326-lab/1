@@ -1,0 +1,82 @@
+name: NEXEND FC Compile
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '**/*.ino'
+      - '.github/workflows/arduino-pico-compile.yml'
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Update indexes
+        run: |
+          arduino-cli config init
+          arduino-cli core update-index \
+            --additional-urls https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+          arduino-cli lib update-index
+
+      - name: Install Raspberry Pi Pico core
+        run: |
+          arduino-cli core install rp2040:rp2040 \
+            --additional-urls https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json
+
+      - name: Install libraries
+        run: |
+          arduino-cli lib install "RF24"
+          arduino-cli lib install "TinyGPSPlus"
+          arduino-cli lib install "Adafruit BMP280 Library"
+          arduino-cli lib install "Adafruit INA219"
+          arduino-cli lib install "Adafruit NeoPixel"
+          arduino-cli lib install "QMC5883LCompass"
+          arduino-cli lib install "VL53L0X"
+
+      - name: Prepare sketch folder
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          SOURCE="NexendFCNew_v_1_4_NXL_1radio_USERLED.ino"
+          SKETCH_DIR="build/NexendFCNew_v_1_4_NXL_1radio_USERLED"
+
+          if [ ! -f "$SOURCE" ]; then
+            echo "ERROR: Source file not found: $SOURCE"
+            ls -la
+            exit 1
+          fi
+
+          mkdir -p "$SKETCH_DIR"
+
+          # Firmware jadi .h supaya TIDAK diproses auto-prototype Arduino
+          cp "$SOURCE" "$SKETCH_DIR/NexendFirmware.h"
+
+          printf '#include "NexendFirmware.h"\n' \
+            > "$SKETCH_DIR/NexendFCNew_v_1_4_NXL_1radio_USERLED.ino"
+
+          test -s "$SKETCH_DIR/NexendFirmware.h"
+          ls -la "$SKETCH_DIR"
+
+      - name: Compile for Raspberry Pi Pico
+        run: |
+          arduino-cli compile \
+            --fqbn "rp2040:rp2040:rpipico:flash=2097152_1048576" \
+            --warnings all \
+            --output-dir build/output \
+            build/NexendFCNew_v_1_4_NXL_1radio_USERLED
+
+      - name: Upload firmware artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NEXEND-FC-firmware
+          path: build/output/*.uf2
+          if-no-files-found: error
